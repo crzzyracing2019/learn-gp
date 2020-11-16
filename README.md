@@ -1,0 +1,2 @@
+# learn-gp
+greenplum
