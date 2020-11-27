@@ -8,8 +8,8 @@
   - [1.6. 重启数据库](#16-重启数据库)
 - [二、resource group 参数详解](#二resource-group-参数详解)
   - [1. CPU限制](#1-cpu限制)
-    - [方式一：按照核数来分配，CPUSET](#方式一按照核数来分配cpuset)
-    - [方式二：按照百分比来分配，CPU_RATE_LIMIT](#方式二按照百分比来分配cpu_rate_limit)
+    - [方式一：按照核数来分配](#方式一按照核数来分配)
+    - [方式二：按照百分比来分配](#方式二按照百分比来分配)
   - [2. 内存限制](#2-内存限制)
   - [3. 创建rg并且分配role](#3-创建rg并且分配role)
   - [4. 几个相关运维脚本](#4-几个相关运维脚本)
@@ -18,8 +18,8 @@
 <br><br><br>
 
 # 一、resource group安装
-> 官方文档《GPDB611Docs.pdf》p523 Managing Resource
-> 目的是为了在资源不足的时候**禁止**SQL的执行，而不是协调分发资源；即整体上利用内存、CPU、并发量等指标，通过阻止某些大SQL分得资源来保护绝大多数事务获得资源正常运行。   
+> 官方文档《GPDB611Docs.pdf》p523 Managing Resource   
+> resource group（以下简称rg）设计的目的是为了在资源不足的时候**禁止**SQL的执行，而不是协调分发资源；即整体上利用内存、CPU、并发量等指标，通过阻止某些大SQL分得资源来保护绝大多数事务获得资源正常运行。   
 > 当执行SQL时，gp先查询当前组是否达超过最大限制，如果没有则立即执行，如果有则进入等待队列（FCFS先到先得）。
 如果资源组设置的足够大，gp甚至能执行挂起的SQL。   
 > 注意：红帽6版本因为有严重的系统bug不能在开启cgroup的情况下使用gp，`cat /etc/redhat-release`
@@ -102,46 +102,46 @@ gpstart
 
 # 二、resource group 参数详解
 ## 1. CPU限制
+> 可以用CPU核心数方式也按照百分比来分配，但是同一资源组不能两种方式共用
+> 参数：gp_resource_group_cpu_limit 即每个segments段主机上的CPU使用最大值，**默认0.9**，剩余CPU用来OS内核和GP辅助进程，所以**不建议超过90%**
 
-> gp_resource_group_cpu_limit 每个segments段主机上的CPU使用最大值，**默认0.9**，剩余CPU用来OS内核和GP辅助进程，所以**不建议超过90%**
 
-> 可以用CPU核心数也可以用百分比，但是同一资源组不能两种都用，CPUSET参数为-1时表示禁用
-
-### 方式一：按照核数来分配，CPUSET
-- CPUSET = "1,3-4" 即指定1,3,4号CPU专门为资源组服务；此时CPU_RATE_LIMIT = -1
+### 方式一：按照核数来分配
+- 参数：CPUSET = "1,3-4" 即指定1,3,4号CPU专门为资源组服务；此时CPU_RATE_LIMIT = -1
 - rg只会使用自己专用的CPU！
 - **专用分配方式优先级要高于百分比方式**，即百分比分配的CPU是扣除专用CPU之后剩下的，所以说**尽量少使用专用方式**
 - 标号尽量从最小的“1”开始用，避免restore时候报错
 - 目前用gpcc创建资源组时不支持这种分配方式
 
-### 方式二：按照百分比来分配，CPU_RATE_LIMIT
+### 方式二：按照百分比来分配
+- 参数：CPU_RATE_LIMIT
 - 取值1~100，所有rg相加不能超过100；此时CPUSET = -1
 - CPU_RATE_LIMIT的最大值 = min(gp_resource_group_cpu_limit,非专用CPU数 / 所有CPU核数 × 100)
 > rg对于CPU资源的分配是相对弹性的，它会把闲的CPU分配给忙的rg，但是如果所有rg都处于忙的状态，此时CPU资源的分配就会参考rg设置中的CPU_RATE_LIMIT参数了。
 
 ## 2. 内存限制
-- gp_resource_group_memory_limit 每个点上的内存最大百分比，**默认0.7**
-  - 每个段主机的内存在gp_resource_group_memory_limit的基础上**平均**分配
+- 参数：gp_resource_group_memory_limit 为每个点上的内存最大百分比，**默认0.7**
+- 每个段主机的内存在gp_resource_group_memory_limit的基础上**平均**分配   
 `rg_perseg_mem = ((RAM * (vm.overcommit_ratio%) + SWAP) * gp_resource_group_memory_limit) / num_active_primary_segments`
- - overcommit_ratio一次申请的内存不允许超过可用内存的大小
-- MEMORY_LIMIT
+- 参数：overcommit_ratio 为一次申请的内存不允许超过可用内存的大小
+- 参数：MEMORY_LIMIT
   - 取值0~100，创建rg时为必录项
   - =0时，gp reserves no memory for the resource group, but uses resource group global shared memory to fulfill all memory requests in the group;
   - default_group初始值是0, admin_groupp初始值是10
   - 所有rg的MEMORY_LIMIT相加 ≤ 100，建议值 80~90
   - 当 事务没有可用的rg共享内存 and 没有可用的全局共享内存 and 申请额外的内存时，事务将失败！
-- MEMORY_SHARED_QUOTA
+- 参数：MEMORY_SHARED_QUOTA
+  - 取值0~100，指的是共享部分的百分比，**默认80**，即只有20%的分配内存为固定的
   - 对于rg已经分得的内存(MEMORY_LIMIT>0 and sum(MMEORY_LIMIT)<=100),再分为固定部分和共享部分
-  - MEMORY_SHARED_QUOTA，0~100指的是共享部分的百分比，**默认80**，即只有20%的分配内存为固定的
 - 全局共享内存：
   - 当所有rg的MEMORY_LIMIT之和 < 100时，全局共享内存被启用，剩余内存被收集形成shared pool
   - 当全局共享内存 = 100 - sum(MEMORY_LIMIT) 介于10~20%时，gp会更有效的使用rg分配内存！
   - 分配算法采用先到先得FCFS
   - 全局共享内存的使用还有助于缓解内存消耗或不可预测的查询失败
-- memory_spill_ratio
+- 参数：MEMORY_SPILL_RATIO
+  - 取值0~100，默认值是0，就是没有阈值，这时gp使用statement_mem参数来分配事务的初始内存
   - 一个事务里内存敏感型操作的阈值，如果达到阈值则由内存向磁盘spill，
   - gp用这个参数来确定对事务的初始内存分配
-  - 取值0~100，默认值是0，就是没有阈值，这时gp使用statement_mem参数来分配事务的初始内存
   - 若rg里MEMORY_LIMIT = 0，则memory_spill_ratio也必须是0
   - 当 memory_spill_ratio <= 2 且 statement_mem <= 10M 时，**对内存需求较低的事务**会有较高的效率，可以在事务级进行控制:
 ```sql
@@ -149,18 +149,18 @@ SET memory_spill_ratio=0;
 SET statement_mem='10 MB';
 ```
 
-综上：
-(1) 每个host的可用内存 = RAM × gp_resource_group_memory_limit / 100
-(2) 每个segment的可用内存 = 每个host的可用内存 / 主segments数量
-(3) 每个rg的内存 = 每个segment的内存 × MEMORY_LIMIT / 100
-(4) 其中共享部分 = 每个rg的内存 × MEMORY_SHARED_QUOTA / 100
-(5) 其中固定部分 = 每个rg的内存 × (100 - MEMORY_SHARED_QUOTA) / 100
-(6) 事务槽 = 其中固定部分 / rg的并发数
-(7) 全局共享内存 = 每个segment的可用内存 × (100 - sum(MEMORY_LIMIT)) / 100
+**综上：**   
+(1) 每个host的可用内存 = RAM × gp_resource_group_memory_limit% 
+(2) 每个segment的可用内存 = 每个host的可用内存 / 主segments数量   
+(3) 每个rg的内存 = 每个segment的内存 × MEMORY_LIMIT%   
+(4) 其中共享部分 = 每个rg的内存 × MEMORY_SHARED_QUOTA%   
+(5) 其中固定部分 = 每个rg的内存 × (100 - MEMORY_SHARED_QUOTA)%   
+(6) 事务槽 = 其中固定部分 / rg的并发数   
+(7) 全局共享内存 = 每个segment的可用内存 × (100 - sum(MEMORY_LIMIT))%   
+
 **内存使用优先级：当前事务槽(6) ==> rg中共享部分(4) ==> 全局共享内存(7) ==> 事务失败**
 
 ![](png/png_rg_resgroupmem.png)
-
 
 ## 3. 创建rg并且分配role
 ```sql
