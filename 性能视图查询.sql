@@ -50,19 +50,19 @@ select definition from pg_views where viewname = 'dwb+'
  and a.objsubid = b.attname;
 
 
- --owner
+ --查询owner
  select * from pg_attribute where oid = '31220';
 
 
- --namespace
+ --查询namespace
  select * from pg_namespace where oid = '';
 
- --每个表在所有segments上的分布情况
+ --查询每个表在所有segments上的分布情况
  select gp_segments_id,count(1) from dwb.dwb_v_pty_client group by 1 order by 1;
 
 
 
- --是否是分区表
+ --查询是否是分区表
  select * from pg_partition where parrelid = 'public.表名'::regclass;
 
 
