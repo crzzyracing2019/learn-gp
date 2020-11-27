@@ -45,14 +45,19 @@ https://gpcc.docs.pivotal.io/630/topics/overview.html
 ## 1. 下载安装包
 下载到官网：https://network.pivotal.io/products/pivotal-gpdb   
 
+
 ![](png/gpcc1.png)
+
+</br>
 
 搜索 `command center`
 查看os发行版本`cat /etc/redhat-release`，按照对应的os版本下载     
 下载前必须要注册用户
 选择安装包：greenplum-cc-web-6.3.1-gp6-rhel7-x86_64.zip   
 
+
 ![](png/gpcc2.png)
+
 
 </br>
 
@@ -77,11 +82,11 @@ $ gpssh -f <hostfile> 'sudo ln -s /usr/local/greenplum-cc-6.3.0 /usr/local/green
 ## 4. 运行安装程序
 gpcc总共四种安装方式：
 - 交互式安装
-- 静默安装
-- 默认方式安装
+- 静默安装，使用参数文件
+- 默认方式安装 --auto
 - 更新gpcc
 
-运行安装程序：
+运行交互式安装程序：
 ```shell
 $ source /usr/local/greenplum-db/greenplum_path.sh
 $ cd greenplum-cc-<version>
@@ -96,9 +101,7 @@ $ ./gpccinstall-<version> -W
 > 如果想用新版本的特性则必须安装新的metrics_collector，如果不想用新特性，可以使用旧的metrics_collector   
 
 - 直接运行MetricsCollector中的安装脚本即可！脚本都是解压好的
-- 创建用户 gpmon   
-需要创建超级用户gpmon ， 如果原来没有，那么gpcc安装过程中会自动创建这个用户，
-但是密码需要新输入一遍，安装过程会有提示使用 -W 参数，首次输入一定要记住密码！
+- 需要创建超级用户gpmon ， 如果原来没有，那么gpcc安装过程中会自动创建这个用户，但是密码需要新输入一遍，安装过程会有提示使用 -W 参数，首次输入一定要记住密码！
 
 </br>
 
@@ -128,6 +131,9 @@ $ gpcc start -W
     - 使配置文件生效：gpstop -u 
     - 重启gpcc： gpcc start -W
 
+
 ![](png/gpcc3.png)
+
+
 
 
