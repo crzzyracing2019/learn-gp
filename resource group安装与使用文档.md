@@ -161,6 +161,7 @@ SET statement_mem='10 MB';
 
 ![](png/png_rg_resgroupmem.png)
 
+
 ## 3. 创建rg并且分配role
 ```sql
 --创建rg
