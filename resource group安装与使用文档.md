@@ -12,10 +12,10 @@
     - [方式二：按照百分比来分配](#方式二按照百分比来分配)
   - [2. 内存限制](#2-内存限制)
   - [3. 创建rg并且分配role](#3-创建rg并且分配role)
-  - [4. 几个相关运维脚本](#4-几个相关运维脚本)
-- [三、resource queue 参数介绍（待扩展）](#三resource-queue-参数介绍待扩展)
+  - [4. 几个rg相关运维脚本](#4-几个rg相关运维脚本)
+- [三、resource queue 与 resource group 区别:](#三resource-queue-与-resource-group-区别)
 
-<br><br><br>
+<br>
 
 # 一、resource group安装
 > 官方文档《GPDB611Docs.pdf》p523 Managing Resource   
@@ -96,9 +96,9 @@ gpconfig -c gp_resource_manager -v "group"
 gpstop
 gpstart
 ```
-至此resource group安装成功。
+至此resource group安装成功！
 
-<br><br><br>
+<br>
 
 # 二、resource group 参数详解
 ## 1. CPU限制
@@ -126,37 +126,38 @@ gpstart
 - 参数：overcommit_ratio 为一次申请的内存不允许超过可用内存的大小
 - 参数：MEMORY_LIMIT
   - 取值0~100，创建rg时为必录项
-  - =0时，gp reserves no memory for the resource group, but uses resource group global shared memory to fulfill all memory requests in the group;
+  - =0时，没有预留固定内存, 直接到全局共享区取内存
   - default_group初始值是0, admin_groupp初始值是10
   - 所有rg的MEMORY_LIMIT相加 ≤ 100，建议值 80~90
   - 当 事务没有可用的rg共享内存 and 没有可用的全局共享内存 and 申请额外的内存时，事务将失败！
 - 参数：MEMORY_SHARED_QUOTA
   - 取值0~100，指的是共享部分的百分比，**默认80**，即只有20%的分配内存为固定的
   - 对于rg已经分得的内存(MEMORY_LIMIT>0 and sum(MMEORY_LIMIT)<=100),再分为固定部分和共享部分
+- 参数：MEMORY_SPILL_RATIO
+  - 取值0~100，默认值是0，就是没有阈值，=0时gp使用statement_mem参数来分配事务的初始内存
+  - 一个事务里内存敏感型操作的阈值，如果达到阈值则数据由内存向磁盘spill
+  - gp用这个参数来确定对事务的初始内存分配
+  - 若rg里MEMORY_LIMIT = 0，则memory_spill_ratio也必须是0
+  - 当 memory_spill_ratio <= 2 且 statement_mem <= 10M 时，**对内存需求较低的事务**会有较高的效率，可以在事务级进行控制:
+    ```sql
+    SET memory_spill_ratio=0;
+    SET statement_mem='10 MB';
+    ```
 - 全局共享内存：
   - 当所有rg的MEMORY_LIMIT之和 < 100时，全局共享内存被启用，剩余内存被收集形成shared pool
   - 当全局共享内存 = 100 - sum(MEMORY_LIMIT) 介于10~20%时，gp会更有效的使用rg分配内存！
   - 分配算法采用先到先得FCFS
   - 全局共享内存的使用还有助于缓解内存消耗或不可预测的查询失败
-- 参数：MEMORY_SPILL_RATIO
-  - 取值0~100，默认值是0，就是没有阈值，这时gp使用statement_mem参数来分配事务的初始内存
-  - 一个事务里内存敏感型操作的阈值，如果达到阈值则由内存向磁盘spill，
-  - gp用这个参数来确定对事务的初始内存分配
-  - 若rg里MEMORY_LIMIT = 0，则memory_spill_ratio也必须是0
-  - 当 memory_spill_ratio <= 2 且 statement_mem <= 10M 时，**对内存需求较低的事务**会有较高的效率，可以在事务级进行控制:
-```sql
-SET memory_spill_ratio=0;
-SET statement_mem='10 MB';
-```
+    
 
 **综上：**   
-(1) 每个host的可用内存 = RAM × gp_resource_group_memory_limit% 
+(1) 每个host的可用内存 = RAM × gp_resource_group_memory_limit%   
 (2) 每个segment的可用内存 = 每个host的可用内存 / 主segments数量   
 (3) 每个rg的内存 = 每个segment的内存 × MEMORY_LIMIT%   
 (4) 其中共享部分 = 每个rg的内存 × MEMORY_SHARED_QUOTA%   
 (5) 其中固定部分 = 每个rg的内存 × (100 - MEMORY_SHARED_QUOTA)%   
 (6) 事务槽 = 其中固定部分 / rg的并发数   
-(7) 全局共享内存 = 每个segment的可用内存 × (100 - sum(MEMORY_LIMIT))%   
+(7) 全局共享内存 = 每个segment的可用内存 × (100 - sum(MEMORY_LIMIT))%    
 
 **内存使用优先级：当前事务槽(6) ==> rg中共享部分(4) ==> 全局共享内存(7) ==> 事务失败**
 
@@ -179,7 +180,7 @@ SET statement_mem='10 MB';
 =# ALTER ROLE mary RESOURCE GROUP NONE;
 ```
 
-## 4. 几个相关运维脚本
+## 4. 几个rg相关运维脚本
 
 ```sql
 --查看rg配置
@@ -194,11 +195,9 @@ SELECT * FROM gp_toolkit.gp_resgroup_status_per_segment;
 SELECT rolname, rsgname FROM pg_roles, pg_resgroup WHERE pg_roles.rolresgroup=pg_resgroup.oid;
 ```
 
-<br><br><br>
+<br>
 
-# 三、resource queue 参数介绍（待扩展）
-
-资源队列和资源组的区别：
+# 三、resource queue 与 resource group 区别:
 
 |参数 |   资源队列 |  资源组 |
 | --- | --- | --- |
@@ -211,7 +210,7 @@ SELECT rolname, rsgname FROM pg_roles, pg_resgroup WHERE pg_roles.rolresgroup=pg
 |查询失效 | 当内存不足时，查询可能会立即失效 | 在没有更多的共享资源组内存的情况下，若事务到达了内存使用量限制后仍然提出增加内存的申请，查询可能会失效  |
 |避开限制 | 超级用户以及特定的操作者和功能不受限制。| SET、RESET和SHOW指令不受限制
 |外部组件 | 无 | 管理PL/Container CPU和内存资源 |
-> resource group（需要安装和启用） 和 resource queue（默认安装）只能二选一 
+**resource group（需要安装和启用） 和 resource queue（默认安装）只能二选一** 
 
 
 
